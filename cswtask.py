@@ -2,44 +2,96 @@ import os
 import numpy as np
 
 
+
+
+class Schema():
+
+    def __init__(self):
+        self.nstates = 6
+        self.errD = {i:[] for i in range(self.nstates)}
+        self.Tmat = self._init_transition_matrix()
+
+    def _init_transition_matrix(self):
+        # T[s0,s1] = pr(s1|s0)
+        T = np.random.random((self.nstates,self.nstates))
+        T = np.transpose(T/T.sum(axis=0)) # rows sum to one
+        return T
+
+    def calc_error_obs(self,st0,st1):
+        """ delta err vec is len Nstates
+        O(st0) - pr(st1), where pr(st1) 
+        is next state prediciton (softmax)
+        """
+        obs = np.zeros(self.nstates)
+        obs[st1] = 1
+        delta_err_vec = obs-self.Tmat[st0]
+        return delta_err_vec
+
+    def calc_error_on_path(self,path):
+        """ returns {st0: delta_err_vec} for st0 in path
+        """
+        D = {}
+        for st0,st1 in zip(path[:-1],path[1:]):
+            D[st0] = self.calc_error_obs(st0,st1)
+        return D
+
+    def update_sch(self,path):
+        alfa = 0.05
+        errD = self.calc_error_on_path(path)
+        for st0,errvec in errD.items():
+            self.Tmat[st0,:] += alfa*errvec
+        return None
+
+    def eval(self):
+        """ 
+        eval schema response on all paths
+        returns [npaths,nsteps] 
+        where each entry is probability of correct response
+        """
+        task = Task()
+        paths = [item for sublist in task.paths for item in sublist]
+        acc_arr = []
+        for path in paths:
+            L = []
+            for s0,s1 in zip(path[:-1],path[1:]):
+                L.append(self.Tmat[s0,s1])
+            acc_arr.append(L)
+        return np.array(acc_arr)
+
+
+
 class Agent():
 
     def __init__(self):
-        self.num_states = 6
-        self.Tmat = self.init_transition_matrix()
-        self.errD = {i:[] for i in range(self.num_states)}
-        return None
+        self.nstates = 6
+        self.nschemas = 20
+        self.schlib = [Schema() for i in range(self.nschemas)]
+        self.errD = {i:[] for i in range(self.nstates)}
+        return None 
 
-    def init_transition_matrix(self):
-        T = np.random.random((self.num_states,self.num_states))
-        # rows sum to one
-        T = np.transpose(T/T.sum(axis=0))
-        return T
+    def select_schema(self,path,rule='nosplit'):
+        if rule == 'nosplit':
+            sch = self.schlib[0]
+        elif rule == 'thresh':
+            None
+        return sch
 
-    def forward_path(self,path):
-        # print(np.round(self.T,2))
-        alfa = 0.2
-        for st,stp1 in zip(path[:-1],path[1:]):
-            # print(st)
-            # calculate error
-            obs = np.zeros(self.num_states)
-            obs[stp1] = 1
-            # print(st)
-            error = obs-self.Tmat[st]
-            # record error
-            self.Emat[self.tr,st] += np.sum(error**2)
-            self.errD[st].append(np.sum(error**2))
-            # update transition matrix
-            self.Tmat[st,:] += alfa*error
-        # assert False
-        return error
 
     def forward_exp(self,exp):
-        self.Emat = np.zeros((len(exp),self.num_states))
+        acc = []
         for tr,path in enumerate(exp): 
             self.tr = tr
-            error_tr = self.forward_path(path)
-        return self.Emat
+            # select schema before prediction
+            sch = self.select_schema(path)
+            # eval
+            acc.append(sch.eval())
+            # update
+            sch.update_sch(path)
+        return np.array(acc)
+
+    def eval_model(self,exp):
+        score = np.zeros(exp.shape)
+        return score
 
 
 
