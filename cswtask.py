@@ -36,7 +36,7 @@ class Schema():
         return D
 
     def update_sch(self,path):
-        alfa = 0.05
+        alfa = 0.3
         errD = self.calc_error_on_path(path)
         for st0,errvec in errD.items():
             self.Tmat[st0,:] += alfa*errvec
@@ -52,11 +52,19 @@ class Schema():
         paths = [item for sublist in task.paths for item in sublist]
         acc_arr = []
         for path in paths:
-            L = []
-            for s0,s1 in zip(path[:-1],path[1:]):
-                L.append(self.Tmat[s0,s1])
-            acc_arr.append(L)
+            acc_arr.append(self.eval_path(path))
         return np.array(acc_arr)
+
+    def eval_path(self,path):
+        accL = []
+        for s0,s1 in zip(path[:-1],path[1:]):
+            accL.append(self.Tmat[s0,s1])
+        return np.array(accL)
+
+    def calc_pe(self,path):
+        errD = self.calc_error_on_path(path)
+        pe = np.sum([i**2 for i in list(errD.values())])
+        return pe
 
 
 
@@ -64,34 +72,53 @@ class Agent():
 
     def __init__(self):
         self.nstates = 6
-        self.nschemas = 20
-        self.schlib = [Schema() for i in range(self.nschemas)]
+        # self.nschemas = 1
+        self.schlib = [Schema()]
         self.errD = {i:[] for i in range(self.nstates)}
+        self.thresh = 2
         return None 
 
-    def select_schema(self,path,rule='nosplit'):
+    def select_schema(self,path,rule='thresh'):
+        # if self.tr>150: self.thresh=1
         if rule == 'nosplit':
             sch = self.schlib[0]
         elif rule == 'thresh':
-            None
+            # calculate pe on active schema
+            pe_sch_t = self.sch.calc_pe(path)
+            # if pe below thresh: stay
+            if pe_sch_t < self.thresh:
+                sch = self.sch
+            else:
+                sch = self.select_schema_minpe(path)
         return sch
+
+    def select_schema_minpe(self,path):
+        peL = []
+        for sch in self.schlib:
+            peL.append(sch.calc_pe(path))
+        minpe = np.min(peL)
+        if minpe<self.thresh:
+            return self.schlib[np.argmin(peL)]
+        else:
+            new_sch = Schema()
+            self.schlib.append(new_sch)
+            return new_sch
 
 
     def forward_exp(self,exp):
         acc = []
+        PE = np.zeros(len(exp))
+        self.sch = self.schlib[0] 
         for tr,path in enumerate(exp): 
+            PE[tr] = self.sch.calc_pe(path)
             self.tr = tr
-            # select schema before prediction
-            sch = self.select_schema(path)
+            # update active schema
+            self.sch = self.select_schema(path)
             # eval
-            acc.append(sch.eval())
+            acc.append(self.sch.eval_path(path))
             # update
-            sch.update_sch(path)
-        return np.array(acc)
-
-    def eval_model(self,exp):
-        score = np.zeros(exp.shape)
-        return score
+            self.sch.update_sch(path)
+        return np.array(acc),PE
 
 
 
