@@ -75,14 +75,18 @@ class Agent():
         # self.nschemas = 1
         self.schlib = [Schema()]
         self.errD = {i:[] for i in range(self.nstates)}
-        self.thresh = 2
+        self.thresh = 1
         return None 
 
     def select_schema(self,path,rule='thresh'):
         # if self.tr>150: self.thresh=1
         if rule == 'nosplit':
             sch = self.schlib[0]
+        elif rule == 'minpe':
+            sch = self.select_schema_minpe(path)
         elif rule == 'thresh':
+            if self.tr%np.random.randint(1,4):
+                return self.sch
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
             # if pe below thresh: stay
@@ -93,16 +97,12 @@ class Agent():
         return sch
 
     def select_schema_minpe(self,path):
+        self.schlib.append(Schema())
         peL = []
         for sch in self.schlib:
             peL.append(sch.calc_pe(path))
         minpe = np.min(peL)
-        if minpe<self.thresh:
-            return self.schlib[np.argmin(peL)]
-        else:
-            new_sch = Schema()
-            self.schlib.append(new_sch)
-            return new_sch
+        return self.schlib[np.argmin(peL)]
 
 
     def forward_exp(self,exp):
