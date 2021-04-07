@@ -7,6 +7,8 @@ import numpy as np
 class Schema():
 
     def __init__(self):
+        self.nupdates = 0
+        self.lr = 0.3
         self.nstates = 6
         self.errD = {i:[] for i in range(self.nstates)}
         self.Tmat = self._init_transition_matrix()
@@ -36,11 +38,15 @@ class Schema():
         return D
 
     def update_sch(self,path):
-        alfa = 0.3
         errD = self.calc_error_on_path(path)
         for st0,errvec in errD.items():
-            self.Tmat[st0,:] += alfa*errvec
+            self.Tmat[st0,:] += self.lr*errvec
+        self.update_lr()
         return None
+
+    def update_lr(self):
+        self.nupdates += 1
+        self.lr = 0.3*np.exp(-0.1*self.nupdates)
 
     def eval(self):
         """ 
@@ -80,12 +86,13 @@ class Agent():
 
     def select_schema(self,path,rule='thresh'):
         # if self.tr>150: self.thresh=1
+        if self.tr==0:return self.schlib[0]
         if rule == 'nosplit':
             sch = self.schlib[0]
         elif rule == 'minpe':
             sch = self.select_schema_minpe(path)
         elif rule == 'thresh':
-            if self.tr%np.random.randint(1,4):
+            if np.random.binomial(1,np.exp(-0.025*self.tr)):
                 return self.sch
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
@@ -117,6 +124,7 @@ class Agent():
             # eval
             acc.append(self.sch.eval_path(path))
             # update
+            lr = 0.3*np.exp(-0.025*self.tr)
             self.sch.update_sch(path)
         return np.array(acc),PE
 
@@ -132,6 +140,7 @@ class Task():
         self.tsteps = len(self.paths[0][0])
         self.exp_int = None
         return None
+
 
     def _init_paths_csw(self):
         """ 
