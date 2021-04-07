@@ -7,8 +7,9 @@ import numpy as np
 class Schema():
 
     def __init__(self):
-        self.nupdates = 0
-        self.lr = 0.3
+        self.nupdates = 1
+        self.init_lr = 0.3
+        self.lr_decay_rate = 0.1 # larger faster decay
         self.nstates = 6
         self.errD = {i:[] for i in range(self.nstates)}
         self.Tmat = self._init_transition_matrix()
@@ -38,15 +39,15 @@ class Schema():
         return D
 
     def update_sch(self,path):
+        lr=self.get_lr()
         errD = self.calc_error_on_path(path)
         for st0,errvec in errD.items():
-            self.Tmat[st0,:] += self.lr*errvec
-        self.update_lr()
+            self.Tmat[st0,:] += lr*errvec
+        self.nupdates += 1
         return None
 
-    def update_lr(self):
-        self.nupdates += 1
-        self.lr = 0.3*np.exp(-0.1*self.nupdates)
+    def get_lr(self):
+        return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
 
     def eval(self):
         """ 
@@ -78,7 +79,7 @@ class Agent():
 
     def __init__(self):
         self.nstates = 6
-        # self.nschemas = 1
+        self.sticky_decay_rate = 0.025
         self.schlib = [Schema()]
         self.errD = {i:[] for i in range(self.nstates)}
         self.thresh = 1
@@ -92,7 +93,8 @@ class Agent():
         elif rule == 'minpe':
             sch = self.select_schema_minpe(path)
         elif rule == 'thresh':
-            if np.random.binomial(1,np.exp(-0.025*self.tr)):
+            # probabilistic sticky
+            if np.random.binomial(1,np.exp(-self.sticky_decay_rate*self.sch.nupdates)):
                 return self.sch
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
