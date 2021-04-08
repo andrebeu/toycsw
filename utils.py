@@ -1,18 +1,21 @@
 import os
 import numpy as np
 
+STSPACE_SIZE = 6 # 6 for reduced csw 
+
 
 
 
 class Schema():
 
-    def __init__(self):
-        self.nupdates = 1
-        self.init_lr = 0.3
-        self.lr_decay_rate = 0.1 # larger faster decay
-        self.nstates = 6
-        self.errD = {i:[] for i in range(self.nstates)}
+    def __init__(self,init_lr=0.3,lr_decay_rate=0.1):
+        self.nstates = STSPACE_SIZE
+        # paramS
+        self.init_lr = init_lr  # fit
+        self.lr_decay_rate = lr_decay_rate # fit; larger faster decay 
+        # init objects
         self.Tmat = self._init_transition_matrix()
+        self.nupdates = 1
 
     def _init_transition_matrix(self):
         # T[s0,s1] = pr(s1|s0)
@@ -77,42 +80,48 @@ class Schema():
 
 class Agent():
 
-    def __init__(self):
-        self.nstates = 6
-        self.sticky_decay_rate = 0.025
-        self.schlib = [Schema()]
-        self.errD = {i:[] for i in range(self.nstates)}
-        self.thresh = 1
+    def __init__(self,sticky_decay_rate=0.025,pe_thresh=1,init_lr=0.3,lr_decay_rate=0.1):
+        # params
+        self.nstates = STSPACE_SIZE 
+        self.sticky_decay_rate = sticky_decay_rate # fit
+        self.pe_thresh = pe_thresh # fit
+        # setup schema library
+        self.sch_params = {
+            'init_lr':init_lr,
+            'lr_decay_rate':lr_decay_rate
+        }
+        self.schlib = [Schema(**self.sch_params)]
         return None 
 
     def select_schema(self,path,rule='thresh'):
-        # if self.tr>150: self.thresh=1
-        if self.tr==0:return self.schlib[0]
-        if rule == 'nosplit':
+        if self.tr==0: # edge
+            return self.schlib[0]
+        if rule == 'nosplit': # debug
             sch = self.schlib[0]
-        elif rule == 'minpe':
+        elif rule == 'minpe': # debug
             sch = self.select_schema_minpe(path)
-        elif rule == 'thresh':
+        elif rule == 'thresh': # main
             # probabilistic sticky
             if np.random.binomial(1,np.exp(-self.sticky_decay_rate*self.sch.nupdates)):
                 return self.sch
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
             # if pe below thresh: stay
-            if pe_sch_t < self.thresh:
+            if pe_sch_t < self.pe_thresh:
                 sch = self.sch
             else:
                 sch = self.select_schema_minpe(path)
         return sch
 
     def select_schema_minpe(self,path):
-        self.schlib.append(Schema())
+        # append to schlib
+        self.schlib.append(Schema(**self.sch_params))
+        # 
         peL = []
         for sch in self.schlib:
             peL.append(sch.calc_pe(path))
         minpe = np.min(peL)
         return self.schlib[np.argmin(peL)]
-
 
     def forward_exp(self,exp):
         acc = []
@@ -126,7 +135,6 @@ class Agent():
             # eval
             acc.append(self.sch.eval_path(path))
             # update
-            lr = 0.3*np.exp(-0.025*self.tr)
             self.sch.update_sch(path)
         return np.array(acc),PE
 
