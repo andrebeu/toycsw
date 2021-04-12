@@ -5,16 +5,20 @@ import torch as tr
 STSPACE_SIZE = 10 
 
 """ 
-
-setup loss and optimizer
+missing softmax prediction projection
 """
+
+
 class RNNSch(tr.nn.Module):
 
-    def __init__(self,stsize=6):
+    def __init__(self,init_lr,lr_decay_rate):
         super().__init__()
-        self.stsize = stsize
+        self.stsize = 6
         self.obsdim = STSPACE_SIZE 
         self._setup()
+        self.init_lr = init_lr
+        self.lr_decay_rate = lr_decay_rate
+        self.nupdates = 1 # used for decay
         return None
 
     def _setup(self):
@@ -26,22 +30,47 @@ class RNNSch(tr.nn.Module):
         self.init_rnn = tr.nn.Parameter(tr.rand(2,1,1,self.stsize),requires_grad=True)
         self.ffout = tr.nn.Linear(self.stsize,self.obsdim,bias=False)
         # optimizer setup
-        self.lossop = tr.nn.MSELoss()
-        self.optiop = tr.optim.Adam(
-            self.parameters(), lr=self.learn_rate)
+        self.lossop = tr.nn.CrossEntropyLoss()
+        
+    def get_lr(self):
+        return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
 
-    def forward(self,event_int): 
-        ''' event_int -> L[obs1,obs2...] '''
+    def forward(self,path): 
+        ''' path -> 1D[obs1,obs2...] 
+        return yhat -> arr[tstep,batch,feature]
+        '''
         # force type, include batch dim
-        x_t = tr.tensor(event_int).unsqueeze(1) 
+        x_t = tr.tensor(path).unsqueeze(1) 
         # first projection
         x_t = self.embed_st(x_t)
         # rnn
         h0,_ = self.init_rnn
-        yhat_t,hn = self.rnn(x_t,h0)
+        yhat,hn = self.rnn(x_t,h0)
         # output layer
-        yhat_t = self.ffout(yhat_t)
-        return yhat_t
+        yhat = self.ffout(yhat)
+        return yhat
+
+    def update(self,path):
+        # setup
+        lr = self.get_lr()
+        self.optiop = tr.optim.Adam(self.parameters(), lr=lr)
+        # fwprop all but first, target starts from second obs
+        yhat = self.forward(path[:-1])
+        ytarget = tr.tensor(path[1:]).unsqueeze(1)
+        ## ??implicit loop backprop through time??
+        # ytarget = tr.tensor(path)
+        # loss = self.lossop(yhat.squeeze(),ytarget)
+        ## explicit loop
+        self.optiop.zero_grad()
+        loss = 0
+        for yh_t,yt_t in zip(yhat,ytarget):
+            loss += self.lossop(yh_t,yt_t)
+            loss.backward(retain_graph=True)
+        self.optiop.step()
+        ### update count (used for lr decay)
+        self.nupdates += 1
+        return loss
+
 
 
 class TmatSch():
@@ -103,6 +132,8 @@ class TmatSch():
 
 
 
+
+
 class Agent():
 
     def __init__(self,sticky_decay_rate=0.02,pe_thresh=1,init_lr=0.25,lr_decay_rate=0.05):
@@ -111,21 +142,23 @@ class Agent():
         # fitting params
         self.sticky_decay_rate = sticky_decay_rate 
         self.pe_thresh = pe_thresh 
-        self.sch_params = {
+        # NB sch params common across delta & RNN
+        self.sch_params = { 
             'init_lr':init_lr,
             'lr_decay_rate':lr_decay_rate
         }
         # setup schema library
-        self.schlib = [TmatSch(**self.sch_params)]
+        self.Dschlib = [TmatSch(**self.sch_params)]
+        self.Rschlib = [RNNSch(**self.sch_params)]
         return None 
 
     def select_schema(self,path,rule='thresh'):
         """ refactor to return schema index 
         """
         if self.tr==0: # edge
-            return self.schlib[0]
+            return self.Dschlib[0]
         if rule == 'nosplit': # debug
-            sch = self.schlib[0]
+            sch = self.Dschlib[0]
         elif rule == 'thresh': # main
             # probabilistic sticky
             pr_stay = np.exp(-self.sticky_decay_rate*self.sch.nupdates)
@@ -143,19 +176,19 @@ class Agent():
 
     def _select_schema_minpe(self,path):
         # append to schlib
-        self.schlib.append(TmatSch(**self.sch_params))
+        self.Dschlib.append(TmatSch(**self.sch_params))
         # 
         peL = []
-        for sch in self.schlib:
+        for sch in self.Dschlib:
             peL.append(sch.calc_pe(path))
         minpe = np.min(peL)
-        return self.schlib[np.argmin(peL)]
+        return self.Dschlib[np.argmin(peL)]
 
     def forward_exp(self,exp):
         """ exp -> arr[trials,tsteps]
         """
         acc = []
-        self.sch = self.schlib[0] 
+        self.sch = self.Dschlib[0] 
         for tr,path in enumerate(exp): 
             self.tr = tr
             # update active schema
