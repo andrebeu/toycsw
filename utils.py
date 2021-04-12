@@ -31,7 +31,7 @@ class RNNSch(tr.nn.Module):
         self.ffout = tr.nn.Linear(self.stsize,self.obsdim,bias=False)
         # optimizer setup
         self.lossop = tr.nn.CrossEntropyLoss()
-        
+
     def get_lr(self):
         return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
 
@@ -71,6 +71,16 @@ class RNNSch(tr.nn.Module):
         self.nupdates += 1
         return loss
 
+    def eval(self,path):
+        """ return acc -> np.1D[tsteps]
+        """
+        yh = self.forward(path[:-1])
+        yhsm = tr.softmax(yh,-1).squeeze()
+        # 1D sm activation of target 
+        yhsm_target = yhsm[range(len(yhsm)),path[1:]]
+        # 
+        acc = yhsm_target.detach().numpy()
+        return acc
 
 
 class TmatSch():
@@ -120,6 +130,9 @@ class TmatSch():
         return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
 
     def eval_path(self,path):
+        """ 
+        return acc > 1D len(tsteps)
+        """
         accL = []
         for s0,s1 in zip(path[:-1],path[1:]):
             accL.append(self.Tmat[s0,s1])
@@ -148,25 +161,27 @@ class Agent():
             'lr_decay_rate':lr_decay_rate
         }
         # setup schema library
-        self.Dschlib = [TmatSch(**self.sch_params)]
-        self.Rschlib = [RNNSch(**self.sch_params)]
+        self.schlib = [{
+            'tsch':TmatSch(**self.sch_params),
+            'rsch':RNNSch(**self.sch_params)
+            }]
         return None 
 
     def select_schema(self,path,rule='thresh'):
         """ refactor to return schema index 
         """
         if self.tr==0: # edge
-            return self.Dschlib[0]
+            return self.schlib[0]
         if rule == 'nosplit': # debug
-            sch = self.Dschlib[0]
+            sch = self.schlib[0]
         elif rule == 'thresh': # main
             # probabilistic sticky
-            pr_stay = np.exp(-self.sticky_decay_rate*self.sch.nupdates)
+            pr_stay = np.exp(-self.sticky_decay_rate*self.sch['tsch'].nupdates)
             stay = np.random.binomial(1,pr_stay)
             if stay:
                 return self.sch
             # calculate pe on active schema
-            pe_sch_t = self.sch.calc_pe(path)
+            pe_sch_t = self.sch['tsch'].calc_pe(path)
             # if pe below thresh: stay
             if pe_sch_t < self.pe_thresh:
                 sch = self.sch
@@ -176,28 +191,35 @@ class Agent():
 
     def _select_schema_minpe(self,path):
         # append to schlib
-        self.Dschlib.append(TmatSch(**self.sch_params))
+        self.schlib.append({
+            'tsch':TmatSch(**self.sch_params),
+            'rsch':RNNSch(**self.sch_params)
+            })
         # 
         peL = []
-        for sch in self.Dschlib:
-            peL.append(sch.calc_pe(path))
+        for sch in self.schlib:
+            peL.append(sch['tsch'].calc_pe(path))
         minpe = np.min(peL)
-        return self.Dschlib[np.argmin(peL)]
+        return self.schlib[np.argmin(peL)]
 
     def forward_exp(self,exp):
         """ exp -> arr[trials,tsteps]
+        acc > [ntrils,tsteps]
         """
-        acc = []
-        self.sch = self.Dschlib[0] 
+        accT = []
+        accR = []
+        self.sch = self.schlib[0] 
         for tr,path in enumerate(exp): 
             self.tr = tr
             # update active schema
             self.sch = self.select_schema(path)
             # eval
-            acc.append(self.sch.eval_path(path))
+            accT.append(self.sch['tsch'].eval_path(path))
+            accR.append(self.sch['rsch'].eval(path))
             # update
-            self.sch.update_sch(path)
-        return np.array(acc)
+            self.sch['tsch'].update_sch(path)
+            self.sch['rsch'].update(path)
+        return np.array(accT),np.array(accR)
 
 
 
