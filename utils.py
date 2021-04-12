@@ -1,14 +1,52 @@
 import os
 import numpy as np
+import torch as tr
 
-STSPACE_SIZE = 6 # 6 for reduced csw 
+STSPACE_SIZE = 10 
+
+""" 
+
+setup loss and optimizer
+"""
+class RNNSch(tr.nn.Module):
+
+    def __init__(self,stsize=6):
+        super().__init__()
+        self.stsize = stsize
+        self.obsdim = STSPACE_SIZE 
+        self._setup()
+        return None
+
+    def _setup(self):
+        """ build and setup optimizer
+        """
+        # build
+        self.embed_st = tr.nn.Embedding(self.obsdim,self.stsize)
+        self.rnn = tr.nn.GRU(self.stsize,self.stsize)
+        self.init_rnn = tr.nn.Parameter(tr.rand(2,1,1,self.stsize),requires_grad=True)
+        self.ffout = tr.nn.Linear(self.stsize,self.obsdim,bias=False)
+        # optimizer setup
+        self.lossop = tr.nn.MSELoss()
+        self.optiop = tr.optim.Adam(
+            self.parameters(), lr=self.learn_rate)
+
+    def forward(self,event_int): 
+        ''' event_int -> L[obs1,obs2...] '''
+        # force type, include batch dim
+        x_t = tr.tensor(event_int).unsqueeze(1) 
+        # first projection
+        x_t = self.embed_st(x_t)
+        # rnn
+        h0,_ = self.init_rnn
+        yhat_t,hn = self.rnn(x_t,h0)
+        # output layer
+        yhat_t = self.ffout(yhat_t)
+        return yhat_t
 
 
+class TmatSch():
 
-
-class Schema():
-
-    def __init__(self,init_lr=0.3,lr_decay_rate=0.1):
+    def __init__(self,init_lr,lr_decay_rate):
         self.nstates = STSPACE_SIZE
         # paramS
         self.init_lr = init_lr  # fit
@@ -52,19 +90,6 @@ class Schema():
     def get_lr(self):
         return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
 
-    def eval(self):
-        """ 
-        eval schema response on all paths
-        returns [npaths,nsteps] 
-        where each entry is probability of correct response
-        """
-        task = Task()
-        paths = [item for sublist in task.paths for item in sublist]
-        acc_arr = []
-        for path in paths:
-            acc_arr.append(self.eval_path(path))
-        return np.array(acc_arr)
-
     def eval_path(self,path):
         accL = []
         for s0,s1 in zip(path[:-1],path[1:]):
@@ -80,29 +105,32 @@ class Schema():
 
 class Agent():
 
-    def __init__(self,sticky_decay_rate=0.025,pe_thresh=1,init_lr=0.3,lr_decay_rate=0.1):
+    def __init__(self,sticky_decay_rate=0.02,pe_thresh=1,init_lr=0.25,lr_decay_rate=0.05):
         # params
         self.nstates = STSPACE_SIZE 
-        self.sticky_decay_rate = sticky_decay_rate # fit
-        self.pe_thresh = pe_thresh # fit
-        # setup schema library
+        # fitting params
+        self.sticky_decay_rate = sticky_decay_rate 
+        self.pe_thresh = pe_thresh 
         self.sch_params = {
             'init_lr':init_lr,
             'lr_decay_rate':lr_decay_rate
         }
-        self.schlib = [Schema(**self.sch_params)]
+        # setup schema library
+        self.schlib = [TmatSch(**self.sch_params)]
         return None 
 
     def select_schema(self,path,rule='thresh'):
+        """ refactor to return schema index 
+        """
         if self.tr==0: # edge
             return self.schlib[0]
         if rule == 'nosplit': # debug
             sch = self.schlib[0]
-        elif rule == 'minpe': # debug
-            sch = self.select_schema_minpe(path)
         elif rule == 'thresh': # main
             # probabilistic sticky
-            if np.random.binomial(1,np.exp(-self.sticky_decay_rate*self.sch.nupdates)):
+            pr_stay = np.exp(-self.sticky_decay_rate*self.sch.nupdates)
+            stay = np.random.binomial(1,pr_stay)
+            if stay:
                 return self.sch
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
@@ -110,12 +138,12 @@ class Agent():
             if pe_sch_t < self.pe_thresh:
                 sch = self.sch
             else:
-                sch = self.select_schema_minpe(path)
+                sch = self._select_schema_minpe(path)
         return sch
 
-    def select_schema_minpe(self,path):
+    def _select_schema_minpe(self,path):
         # append to schlib
-        self.schlib.append(Schema(**self.sch_params))
+        self.schlib.append(TmatSch(**self.sch_params))
         # 
         peL = []
         for sch in self.schlib:
@@ -124,11 +152,11 @@ class Agent():
         return self.schlib[np.argmin(peL)]
 
     def forward_exp(self,exp):
+        """ exp -> arr[trials,tsteps]
+        """
         acc = []
-        PE = np.zeros(len(exp))
         self.sch = self.schlib[0] 
         for tr,path in enumerate(exp): 
-            PE[tr] = self.sch.calc_pe(path)
             self.tr = tr
             # update active schema
             self.sch = self.select_schema(path)
@@ -136,7 +164,7 @@ class Agent():
             acc.append(self.sch.eval_path(path))
             # update
             self.sch.update_sch(path)
-        return np.array(acc),PE
+        return np.array(acc)
 
 
 
@@ -145,58 +173,36 @@ class Task():
     """
 
     def __init__(self):
-        A1,A2,B1,B2 = self._init_paths_toy()
+        A1,A2,B1,B2 = self._init_paths()
         self.paths = [[A1,A2],[B1,B2]]
         self.tsteps = len(self.paths[0][0])
         self.exp_int = None
         return None
 
 
-    def _init_paths_csw(self):
+    def _init_paths(self):
         """ 
         begin -> locA -> node11, node 21, node 31, end
         begin -> locA -> node12, node 22, node 32, end
         begin -> locB -> node11, node 22, node 31, end
         begin -> locB -> node12, node 21, node 32, end
         """
-        locA,locB = 0,1
+        begin,locA,locB = 0,1,2
         node11,node12 = 3,4
         node21,node22 = 5,6
-        A1 = np.array([locA,
-            node11,node21,end
+        node31,node32 = 7,8
+        end = 9
+        A1 = np.array([begin,locA,
+            node11,node21,node31,end
             ])
-        A2 = np.array([locA,
-            node12,node22,end
+        A2 = np.array([begin,locA,
+            node12,node22,node32,end
             ])
-        B1 = np.array([locB,
-            node11,node22,end
+        B1 = np.array([begin,locB,
+            node11,node22,node31,end
             ])
-        B2 = np.array([locB,
-            node12,node21,end
-            ])
-        return A1,A2,B1,B2
-
-    def _init_paths_toy(self):
-        """ 
-        begin -> locA -> node11, node 21, node 31, end
-        begin -> locA -> node12, node 22, node 32, end
-        begin -> locB -> node11, node 22, node 31, end
-        begin -> locB -> node12, node 21, node 32, end
-        """
-        locA,locB = 0,1
-        node11,node12 = 2,3
-        node21,node22 = 4,5
-        A1 = np.array([locA,
-            node11,node21
-            ])
-        A2 = np.array([locA,
-            node12,node22
-            ])
-        B1 = np.array([locB,
-            node11,node22
-            ])
-        B2 = np.array([locB,
-            node12,node21
+        B2 = np.array([begin,locB,
+            node12,node21,node32,end
             ])
         return A1,A2,B1,B2
 
