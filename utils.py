@@ -82,6 +82,13 @@ class RNNSch(tr.nn.Module):
         acc = yhsm_target.detach().numpy()
         return acc
 
+    def calc_pe(self,path):
+        yh = self.forward(path)
+        yh_sm = tr.softmax(yh,-1).squeeze().detach().numpy()
+        yt_onehot = np.eye(STSPACE_SIZE)[path]
+        pe = np.sum((yh_sm[:-1] - yt_onehot[1:])**2)
+        return pe
+
 
 class TmatSch():
 
@@ -99,24 +106,6 @@ class TmatSch():
         T = np.random.random((self.nstates,self.nstates))
         T = np.transpose(T/T.sum(axis=0)) # rows sum to one
         return T
-
-    def calc_error_obs(self,st0,st1):
-        """ delta err vec is len Nstates
-        O(st0) - pr(st1), where pr(st1) 
-        is next state prediciton (softmax)
-        """
-        obs = np.zeros(self.nstates)
-        obs[st1] = 1
-        delta_err_vec = obs-self.Tmat[st0]
-        return delta_err_vec
-
-    def calc_error_on_path(self,path):
-        """ returns {st0: delta_err_vec} for st0 in path
-        """
-        D = {}
-        for st0,st1 in zip(path[:-1],path[1:]):
-            D[st0] = self.calc_error_obs(st0,st1)
-        return D
 
     def update_sch(self,path):
         lr=self.get_lr()
@@ -137,6 +126,29 @@ class TmatSch():
         for s0,s1 in zip(path[:-1],path[1:]):
             accL.append(self.Tmat[s0,s1])
         return np.array(accL)
+    
+    ## PE
+
+    def calc_error_obs(self,st0,st1):
+        """ 
+        delta err vec is len Nstates
+        onehot(st1) - pr(st|st0), where pr(st|st0) 
+            is next state prediciton 
+        """
+        obs = np.zeros(self.nstates)
+        obs[st1] = 1
+        delta_err_vec = obs-self.Tmat[st0]
+        return delta_err_vec
+
+    def calc_error_on_path(self,path):
+        """ 
+        returns {st0: delta_err_vec} for st0 in path
+        used for calculating PE and for update
+        """
+        D = {}
+        for st0,st1 in zip(path[:-1],path[1:]):
+            D[st0] = self.calc_error_obs(st0,st1)
+        return D
 
     def calc_pe(self,path):
         errD = self.calc_error_on_path(path)
@@ -176,12 +188,12 @@ class Agent():
             sch = self.schlib[0]
         elif rule == 'thresh': # main
             # probabilistic sticky
-            pr_stay = np.exp(-self.sticky_decay_rate*self.sch['tsch'].nupdates)
+            pr_stay = np.exp(-self.sticky_decay_rate*self.sch['rsch'].nupdates)
             stay = np.random.binomial(1,pr_stay)
             if stay:
                 return self.sch
             # calculate pe on active schema
-            pe_sch_t = self.sch['tsch'].calc_pe(path)
+            pe_sch_t = self.sch['rsch'].calc_pe(path)
             # if pe below thresh: stay
             if pe_sch_t < self.pe_thresh:
                 sch = self.sch
@@ -198,7 +210,7 @@ class Agent():
         # 
         peL = []
         for sch in self.schlib:
-            peL.append(sch['tsch'].calc_pe(path))
+            peL.append(sch['rsch'].calc_pe(path))
         minpe = np.min(peL)
         return self.schlib[np.argmin(peL)]
 
