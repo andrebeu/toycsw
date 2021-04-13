@@ -4,10 +4,6 @@ import torch as tr
 
 STSPACE_SIZE = 10 
 
-""" 
-missing softmax prediction projection
-"""
-
 
 class RNNSch(tr.nn.Module):
 
@@ -90,74 +86,6 @@ class RNNSch(tr.nn.Module):
         return pe
 
 
-class TmatSch():
-
-    def __init__(self,init_lr,lr_decay_rate):
-        self.nstates = STSPACE_SIZE
-        # paramS
-        self.init_lr = init_lr  # fit
-        self.lr_decay_rate = lr_decay_rate # fit; larger faster decay 
-        # init objects
-        self.Tmat = self._init_transition_matrix()
-        self.nupdates = 1
-
-    def _init_transition_matrix(self):
-        # T[s0,s1] = pr(s1|s0)
-        T = np.random.random((self.nstates,self.nstates))
-        T = np.transpose(T/T.sum(axis=0)) # rows sum to one
-        return T
-
-    def update_sch(self,path):
-        lr=self.get_lr()
-        errD = self.calc_error_on_path(path)
-        for st0,errvec in errD.items():
-            self.Tmat[st0,:] += lr*errvec
-        self.nupdates += 1
-        return None
-
-    def get_lr(self):
-        return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
-
-    def eval_path(self,path):
-        """ 
-        return acc > 1D len(tsteps)
-        """
-        accL = []
-        for s0,s1 in zip(path[:-1],path[1:]):
-            accL.append(self.Tmat[s0,s1])
-        return np.array(accL)
-    
-    ## PE
-
-    def calc_error_obs(self,st0,st1):
-        """ 
-        delta err vec is len Nstates
-        onehot(st1) - pr(st|st0), where pr(st|st0) 
-            is next state prediciton 
-        """
-        obs = np.zeros(self.nstates)
-        obs[st1] = 1
-        delta_err_vec = obs-self.Tmat[st0]
-        return delta_err_vec
-
-    def calc_error_on_path(self,path):
-        """ 
-        returns {st0: delta_err_vec} for st0 in path
-        used for calculating PE and for update
-        """
-        D = {}
-        for st0,st1 in zip(path[:-1],path[1:]):
-            D[st0] = self.calc_error_obs(st0,st1)
-        return D
-
-    def calc_pe(self,path):
-        errD = self.calc_error_on_path(path)
-        pe = np.sum([i**2 for i in list(errD.values())])
-        return pe
-
-
-
-
 
 class Agent():
 
@@ -167,16 +95,12 @@ class Agent():
         # fitting params
         self.sticky_decay_rate = sticky_decay_rate 
         self.pe_thresh = pe_thresh 
-        # NB sch params common across delta & RNN
         self.sch_params = { 
             'init_lr':init_lr,
             'lr_decay_rate':lr_decay_rate
         }
         # setup schema library
-        self.schlib = [{
-            'tsch':TmatSch(**self.sch_params),
-            'rsch':RNNSch(**self.sch_params)
-            }]
+        self.schlib = [RNNSch(**self.sch_params)]
         return None 
 
     def select_schema(self,path,rule='thresh'):
@@ -188,12 +112,12 @@ class Agent():
             sch = self.schlib[0]
         elif rule == 'thresh': # main
             # probabilistic sticky
-            pr_stay = np.exp(-self.sticky_decay_rate*self.sch['rsch'].nupdates)
+            pr_stay = np.exp(-self.sticky_decay_rate*self.sch.nupdates)
             stay = np.random.binomial(1,pr_stay)
             if stay:
                 return self.sch
             # calculate pe on active schema
-            pe_sch_t = self.sch['rsch'].calc_pe(path)
+            pe_sch_t = self.sch.calc_pe(path)
             # if pe below thresh: stay
             if pe_sch_t < self.pe_thresh:
                 sch = self.sch
@@ -203,14 +127,11 @@ class Agent():
 
     def _select_schema_minpe(self,path):
         # append to schlib
-        self.schlib.append({
-            'tsch':TmatSch(**self.sch_params),
-            'rsch':RNNSch(**self.sch_params)
-            })
+        self.schlib.append(RNNSch(**self.sch_params))
         # 
         peL = []
         for sch in self.schlib:
-            peL.append(sch['rsch'].calc_pe(path))
+            peL.append(sch.calc_pe(path))
         minpe = np.min(peL)
         return self.schlib[np.argmin(peL)]
 
@@ -218,7 +139,6 @@ class Agent():
         """ exp -> arr[trials,tsteps]
         acc > [ntrils,tsteps]
         """
-        accT = []
         accR = []
         self.sch = self.schlib[0] 
         for tr,path in enumerate(exp): 
@@ -226,12 +146,10 @@ class Agent():
             # update active schema
             self.sch = self.select_schema(path)
             # eval
-            accT.append(self.sch['tsch'].eval_path(path))
-            accR.append(self.sch['rsch'].eval(path))
+            accR.append(self.sch.eval(path))
             # update
-            self.sch['tsch'].update_sch(path)
-            self.sch['rsch'].update(path)
-        return np.array(accT),np.array(accR)
+            self.sch.update(path)
+        return np.array(accR)
 
 
 
