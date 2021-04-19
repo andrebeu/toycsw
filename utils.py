@@ -2,18 +2,20 @@ import os
 import numpy as np
 import torch as tr
 
+
 STSPACE_SIZE = 10 
+
 
 
 class RNNSch(tr.nn.Module):
 
-    def __init__(self,init_lr,lr_decay_rate):
+    def __init__(self,init_lr,lr_decay):
         super().__init__()
         self.stsize = 6
         self.obsdim = STSPACE_SIZE 
         self._setup()
         self.init_lr = init_lr
-        self.lr_decay_rate = lr_decay_rate
+        self.lr_decay = lr_decay
         self.nupdates = 1 # used for decay
         return None
 
@@ -29,7 +31,7 @@ class RNNSch(tr.nn.Module):
         self.lossop = tr.nn.CrossEntropyLoss()
 
     def get_lr(self):
-        return self.init_lr*np.exp(-self.lr_decay_rate*self.nupdates)
+        return self.init_lr*np.exp(-self.lr_decay*self.nupdates)
 
     def forward(self,path): 
         ''' path -> 1D[obs1,obs2...] 
@@ -68,14 +70,21 @@ class RNNSch(tr.nn.Module):
         return loss
 
     def eval(self,path):
-        """ return acc -> np.1D[tsteps]
+        """ 2AFC accuracy
+        ##
+        return acc -> int
         """
+        # compute activations
         yh = self.forward(path[:-1])
         yhsm = tr.softmax(yh,-1).squeeze()
-        # 1D sm activation of target 
-        yhsm_target = yhsm[range(len(yhsm)),path[1:]]
-        # 
-        acc = yhsm_target.detach().numpy()
+        # normalize softmax of true node by 2AFC
+        acc = 0
+        for tstep,tonodes in zip([2,3],[(5,6),(7,8)]):
+            pr_true_state = yhsm[tstep,path[tstep+1]]
+            normalization = yhsm[tstep,tonodes].sum()
+            acc += pr_true_state/normalization
+        # normalize sum by number of layers
+        acc /= 2
         return acc
 
     def calc_pe(self,path):
@@ -89,22 +98,22 @@ class RNNSch(tr.nn.Module):
 
 class Agent():
 
-    def __init__(self,sticky_decay_rate=0.02,pe_thresh=1,init_lr=0.25,lr_decay_rate=0.05):
+    def __init__(self,sticky_decay,pe_thresh,init_lr,lr_decay):
         # params
         self.nstates = STSPACE_SIZE 
         # fitting params
-        self.sticky_decay_rate = sticky_decay_rate 
+        self.sticky_decay = sticky_decay 
         self.pe_thresh = pe_thresh 
         self.sch_params = { 
             'init_lr':init_lr,
-            'lr_decay_rate':lr_decay_rate
+            'lr_decay':lr_decay
         }
         # setup schema library
         self.schlib = [RNNSch(**self.sch_params)]
         return None 
 
     def select_schema(self,path,rule='thresh'):
-        """ refactor to return schema index 
+        """ 
         """
         if self.tr==0: # edge
             return self.schlib[0]
@@ -112,7 +121,7 @@ class Agent():
             sch = self.schlib[0]
         elif rule == 'thresh': # main
             # probabilistic sticky
-            pr_stay = np.exp(-self.sticky_decay_rate*self.sch.nupdates)
+            pr_stay = np.exp(-self.sticky_decay*self.sch.nupdates)
             stay = np.random.binomial(1,pr_stay)
             if stay:
                 return self.sch
@@ -122,13 +131,16 @@ class Agent():
             if pe_sch_t < self.pe_thresh:
                 sch = self.sch
             else:
+                # append to schlib
+                self.schlib.append(RNNSch(**self.sch_params))
                 sch = self._select_schema_minpe(path)
         return sch
 
     def _select_schema_minpe(self,path):
-        # append to schlib
-        self.schlib.append(RNNSch(**self.sch_params))
-        # 
+        """ 
+        calculate pathPE for each model in lib
+        return schema with min pathPE
+        """
         peL = []
         for sch in self.schlib:
             peL.append(sch.calc_pe(path))
@@ -136,7 +148,8 @@ class Agent():
         return self.schlib[np.argmin(peL)]
 
     def forward_exp(self,exp):
-        """ exp -> arr[trials,tsteps]
+        """ 
+        exp -> arr[trials,tsteps]
         acc > [ntrils,tsteps]
         """
         accR = []
@@ -164,7 +177,6 @@ class Task():
         self.exp_int = None
         return None
 
-
     def _init_paths(self):
         """ 
         begin -> locA -> node11, node 21, node 31, end
@@ -172,11 +184,11 @@ class Task():
         begin -> locB -> node11, node 22, node 31, end
         begin -> locB -> node12, node 21, node 32, end
         """
-        begin,locA,locB = 0,1,2
-        node11,node12 = 3,4
-        node21,node22 = 5,6
-        node31,node32 = 7,8
-        end = 9
+        begin,locA,locB = 0,1,2 # 0,1
+        node11,node12 = 3,4 # 2
+        node21,node22 = 5,6 # 3
+        node31,node32 = 7,8 # 4
+        end = 9 # 5
         A1 = np.array([begin,locA,
             node11,node21,node31,end
             ])
@@ -190,7 +202,6 @@ class Task():
             node12,node21,node32,end
             ])
         return A1,A2,B1,B2
-
 
     def get_curriculum(self,condition,n_train,n_test):
         """ 
@@ -232,7 +243,6 @@ class Task():
         # 
         curriculum += [int(np.random.rand() < 0.5) for _ in range(n_test)]
         return np.array(curriculum)
-
 
     def generate_experiment(self,condition,n_train,n_test):
         """ 
