@@ -12,7 +12,8 @@ from scipy.stats import zscore
 from utils import *
 import sys
 
-paramstr = sys.argv[1]
+# parameter input as string
+paramstr = str(sys.argv[1])
 sd,pt,l0,ld,st = paramstr.split()
 paramD = {
   'sticky_decay':float(sd),
@@ -54,3 +55,4 @@ acc = run_exp(nseeds_gs,condBI,paramD)
 fname = paramD_to_fname(paramD)
 np.save("gsdata/gs1/accBI-"+fname,acc)
 
+print('done')
