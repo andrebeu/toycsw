@@ -111,6 +111,9 @@ class Agent():
         }
         # setup schema library
         self.schlib = [RNNSch(**self.sch_params)]
+        ## analysis vars
+        self.sch_conditions = np.zeros(3)
+
         return None 
 
     def select_schema(self,path,rule='thresh'):
@@ -124,15 +127,20 @@ class Agent():
             # probabilistic sticky
             pr_stay = np.exp(-self.sticky_decay*self.sch.nupdates)
             stay = np.random.binomial(1,pr_stay)
+            ## prior
             if stay:
+                self.sch_conditions[0]+=1
                 return self.sch
+            ## posterior
             # calculate pe on active schema
             pe_sch_t = self.sch.calc_pe(path)
             # if pe below thresh: stay
             if pe_sch_t < self.pe_thresh:
+                self.sch_conditions[1]+=1
                 sch = self.sch
             else:
                 # append to schlib
+                self.sch_conditions[2]+=1
                 self.schlib.append(RNNSch(**self.sch_params))
                 sch = self._select_schema_minpe(path)
         return sch
