@@ -9,9 +9,9 @@ STSPACE_SIZE = 10
 
 class RNNSch(tr.nn.Module):
 
-    def __init__(self,init_lr,lr_decay):
+    def __init__(self,init_lr,lr_decay,stsize):
         super().__init__()
-        self.stsize = 6
+        self.stsize = stsize
         self.obsdim = STSPACE_SIZE 
         self._setup()
         self.init_lr = init_lr
@@ -98,7 +98,7 @@ class RNNSch(tr.nn.Module):
 
 class Agent():
 
-    def __init__(self,sticky_decay,pe_thresh,init_lr,lr_decay):
+    def __init__(self,sticky_decay,pe_thresh,init_lr,lr_decay,stsize):
         # params
         self.nstates = STSPACE_SIZE 
         # fitting params
@@ -106,7 +106,8 @@ class Agent():
         self.pe_thresh = pe_thresh 
         self.sch_params = { 
             'init_lr':init_lr,
-            'lr_decay':lr_decay
+            'lr_decay':lr_decay,
+            'stsize':int(stsize)
         }
         # setup schema library
         self.schlib = [RNNSch(**self.sch_params)]

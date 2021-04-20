@@ -1,10 +1,13 @@
 # main: handheld splitting + schema rnn
 - splitting controlled by RNN
   - 04/19/21: found test B>I without much optimizing.
-- next steps:
-  - optimize learnrate and stsize for better initial learning 
-  - gridsearch splitting params to assess robustness and look for best fit
-  - change eval method to normalized 2afc
+
+### working notes:
+  - need to optimize stsize
+    - fit initial trials of blocked 
+    - set to default
+  - then, gridsearching splitting params
+    - gs script is ready to run
 
 
 ## delta+rnn branch
