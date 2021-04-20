@@ -1,6 +1,8 @@
-# main: handheld splitting + schema rnn
+# main: best fit
 - splitting controlled by RNN
   - 04/19/21: found test B>I without much optimizing.
+  - freezing this branch with results from current bestfit B>I
+  - {'sticky_decay': 0.02, 'pe_thresh': 0.9, 'init_lr': 0.45, 'lr_decay': 0.25, 'stsize': 6.0}
 
 
 ### working notes:
