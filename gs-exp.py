@@ -41,6 +41,9 @@ def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
             # run
             exp,cur = task.generate_experiment(cond,ntr,nte)
             acc[ci,s] = ag.forward_exp(exp) 
+            # save
+            fname = paramD_to_fname(paramD)
+            np.save("gsdata/gs1/accBI-"+fname,acc)
     return acc
 
 
@@ -51,8 +54,6 @@ def paramD_to_fname(paramD):
 # run
 condBI = ['blocked','interleaved']
 acc = run_exp(nseeds_gs,condBI,paramD)
-# save
-fname = paramD_to_fname(paramD)
-np.save("gsdata/gs1/accBI-"+fname,acc)
+
 
 print('done')
