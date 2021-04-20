@@ -23,7 +23,7 @@ paramD = {
   'stsize':int(st)
 }
 
-nseeds_gs = 1
+nseeds_gs = 50
 
 
 def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
@@ -31,7 +31,9 @@ def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
     print('N=%i'%nseeds,paramD)
     acc = -np.ones([len(condL),nseeds,ntr+nte])
     for ci,cond in enumerate(condL):
+        print('\n\ninit',cond)
         for s in range(nseeds):
+            print(s)
             # seed ctrl
             np.random.seed(s)
             tr.manual_seed(s)
@@ -41,9 +43,6 @@ def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
             # run
             exp,cur = task.generate_experiment(cond,ntr,nte)
             acc[ci,s] = ag.forward_exp(exp) 
-            # save
-            fname = paramD_to_fname(paramD)
-            np.save("gsdata/gs1/accBI-"+fname,acc)
     return acc
 
 
@@ -54,6 +53,9 @@ def paramD_to_fname(paramD):
 # run
 condBI = ['blocked','interleaved']
 acc = run_exp(nseeds_gs,condBI,paramD)
+# save
+fname = paramD_to_fname(paramD)
+np.save("gsdata/gs1/accBI-"+fname,acc)
 
 
 print('done')

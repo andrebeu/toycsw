@@ -7,7 +7,7 @@
 #SBATCH -o ./slurms/output.%j.%a.out
 
 
-# module load pyger/0.9
+module load pyger/0.9
 conda init bash
 conda activate sem
 
