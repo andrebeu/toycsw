@@ -22,6 +22,8 @@ paramD = {
   'stsize':int(st)
 }
 
+nseeds_gs = 1
+
 
 def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
     """ returns acc for cond in condL """
@@ -42,14 +44,13 @@ def run_exp(nseeds,condL,paramD,ntr=160,nte=40):
 
 
 def paramD_to_fname(paramD):
-  return "-".join(["%s_%f"%(i,j) for i,j in paramD.items()])
+  return "-".join(["%s_%.4f"%(i,j) for i,j in paramD.items()])
 
 
 # run
-nseeds_gs = 10
 condBI = ['blocked','interleaved']
 acc = run_exp(nseeds_gs,condBI,paramD)
 # save
 fname = paramD_to_fname(paramD)
-np.save("gsdata/gs1/"+fname,acc)
+np.save("gsdata/gs1/accBI-"+fname,acc)
 
