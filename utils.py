@@ -124,25 +124,24 @@ class Agent():
         if rule == 'nosplit': # debug
             sch = self.schlib[0]
         elif rule == 'thresh': # main
-            # probabilistic sticky
-            pr_stay = np.exp(-self.sticky_decay*self.sch.nupdates)
-            stay = np.random.binomial(1,pr_stay)
-            ## prior
-            if stay:
-                self.sch_conditions[0]+=1
-                return self.sch
-            ## posterior
-            # calculate pe on active schema
+            # if pe on active schema below thresh: stay
             pe_sch_t = self.sch.calc_pe(path)
-            # if pe below thresh: stay
             if pe_sch_t < self.pe_thresh:
                 self.sch_conditions[1]+=1
-                sch = self.sch
+                return self.sch
             else:
-                # append to schlib
-                self.sch_conditions[2]+=1
-                self.schlib.append(RNNSch(**self.sch_params))
-                sch = self._select_schema_minpe(path)
+                # probabilistic sticky
+                pr_stay = np.exp(-self.sticky_decay*self.sch.nupdates)
+                stay_lapse = np.random.binomial(1,pr_stay)
+                ## prior
+                if stay_lapse:
+                    self.sch_conditions[0]+=1
+                    return self.sch
+                else:
+                    # append to schlib
+                    self.sch_conditions[2]+=1
+                    self.schlib.append(RNNSch(**self.sch_params))
+                    return self._select_schema_minpe(path)
         return sch
 
     def _select_schema_minpe(self,path):
