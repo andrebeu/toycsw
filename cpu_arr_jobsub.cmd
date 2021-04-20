@@ -19,7 +19,7 @@ param_str=`python get_param_jobsub.py ${slurm_arr_idx}`
 echo ${param_str}
 
 # submit job
-srun python gridsearch.py "${param_str}"
+srun python gs-exp.py "${param_str}"
 
 # slurm diagnostics
 sacct --format="CPUTime,MaxRSS"
