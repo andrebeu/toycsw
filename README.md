@@ -10,10 +10,13 @@
       - I more splits 
       - I never enters pe`<`thresh
       - B more pr_stay
-  - can I simplify splitting procedure?
+  - can I specify nonprobabilistic splitting procedure?
+    - something such that, when active schema is below PE thresh, high weight given to current schema.
 
 
 ### notes
+  - placing pe thresh condition as default (first) schema selection condition also yields good B>I.
+    - good news because now pr_stay only applies when pe_thresh not met
   - best fit: {'sticky_decay': 0.02, 'pe_thresh': 0.9, 'init_lr': 0.45, 'lr_decay': 0.25, 'stsize': 6.0}
   - stsize 10 yields poor fit (I learns too fast)
 

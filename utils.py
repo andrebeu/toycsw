@@ -112,22 +112,26 @@ class Agent():
         # setup schema library
         self.schlib = [RNNSch(**self.sch_params)]
         ## analysis vars
-        self.sch_conditions = np.zeros(3)
-
+        self.sch_data = -np.ones(200)
         return None 
 
     def select_schema(self,path,rule='thresh'):
         """ 
         """
         if self.tr==0: # edge
+            self.sch_data[self.tr]=0
             return self.schlib[0]
         if rule == 'nosplit': # debug
             sch = self.schlib[0]
         elif rule == 'thresh': # main
+            """ 
+            when below thresh, posterior overcomes prior
+            otherwise, prior wins
+            """
             # if pe on active schema below thresh: stay
             pe_sch_t = self.sch.calc_pe(path)
             if pe_sch_t < self.pe_thresh:
-                self.sch_conditions[1]+=1
+                self.sch_data[self.tr] = 0
                 return self.sch
             else:
                 # probabilistic sticky
@@ -135,17 +139,21 @@ class Agent():
                 stay_lapse = np.random.binomial(1,pr_stay)
                 ## prior
                 if stay_lapse:
-                    self.sch_conditions[0]+=1
+                    self.sch_data[self.tr] = 1
                     return self.sch
                 else:
                     # append to schlib
-                    self.sch_conditions[2]+=1
                     self.schlib.append(RNNSch(**self.sch_params))
-                    return self._select_schema_minpe(path)
-        return sch
+                    sch = self._select_schema_minpe(path)
+                    if sch == self.sch:
+                        self.sch_data[self.tr] = 0
+                    else:
+                        self.sch_data[self.tr] = 2
+                    return sch
+        return None
 
     def _select_schema_minpe(self,path):
-        """ 
+        """ how often is the new schema selected? i.e. schidx-1
         calculate pathPE for each model in lib
         return schema with min pathPE
         """
@@ -162,6 +170,7 @@ class Agent():
         """
         accR = []
         self.sch = self.schlib[0] 
+        dataD = {}
         for tr,path in enumerate(exp): 
             self.tr = tr
             # update active schema
@@ -170,7 +179,9 @@ class Agent():
             accR.append(self.sch.eval(path))
             # update
             self.sch.update(path)
-        return np.array(accR)
+        dataD['acc'] = np.array(accR)
+        dataD['sch'] = self.sch_data
+        return dataD
 
 
 
