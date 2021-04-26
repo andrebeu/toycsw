@@ -1,3 +1,13 @@
+# prstay (04/26/21): good B>I, splitting controled by RNN schema
+- this implementation has a conditional splitting rule, which includes a lapse rate (pr_stay).
+  - on each trial, with probability pr_stay, the same schema is used
+  - pr_stay is an exponentially decreasing  functions of the number of times schema is updated
+- the next development on main is to remove this probabilistic component
+  - the plan is to absorb pr_stay into the PE threshold
+  - where PE threshold is also decreasing with number of updates
+    - comports with the SEM assumption of decreasing estimated schema variance with more updates
+  
+
 # main: handheld splitting + schema rnn
 - splitting controlled by RNN
   - 04/19/21: found test B>I without much optimizing.
