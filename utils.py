@@ -98,12 +98,10 @@ class RNNSch(tr.nn.Module):
 
 class Agent():
 
-    def __init__(self,sticky_decay,pe_thresh,init_lr,lr_decay,stsize):
+    def __init__(self,pe_thresh_decay,pe_thresh0,init_lr,lr_decay,stsize):
         # params
         self.nstates = STSPACE_SIZE 
         # fitting params
-        self.sticky_decay = sticky_decay 
-        self.pe_thresh = pe_thresh 
         self.sch_params = { 
             'init_lr':init_lr,
             'lr_decay':lr_decay,
@@ -112,7 +110,10 @@ class Agent():
         # setup schema library
         self.schlib = [RNNSch(**self.sch_params)]
         ## analysis vars
-        self.sch_data = -np.ones(200)
+        self.sch_data = -np.ones((200,3)) # debug
+        self.pe_thresh_decay = pe_thresh_decay
+        self.pe_thresh0 = pe_thresh0
+        self.dynamic_thresh = lambda x: self.pe_thresh0*np.exp(-self.pe_thresh_decay*x)
         return None 
 
     def select_schema(self,path,rule='thresh'):
@@ -124,32 +125,17 @@ class Agent():
         if rule == 'nosplit': # debug
             sch = self.schlib[0]
         elif rule == 'thresh': # main
-            """ 
-            when below thresh, posterior overcomes prior
-            otherwise, prior wins
-            """
-            # if pe on active schema below thresh: stay
+            ## current
             pe_sch_t = self.sch.calc_pe(path)
-            if pe_sch_t < self.pe_thresh:
-                self.sch_data[self.tr] = 0
+            dthresh = self.dynamic_thresh(self.sch.nupdates)
+            self.sch_data[self.tr] = [pe_sch_t,dthresh,0]
+            if pe_sch_t < dthresh:
                 return self.sch
             else:
-                # probabilistic sticky
-                pr_stay = np.exp(-self.sticky_decay*self.sch.nupdates)
-                stay_lapse = np.random.binomial(1,pr_stay)
-                ## prior
-                if stay_lapse:
-                    self.sch_data[self.tr] = 1
-                    return self.sch
-                else:
-                    # append to schlib
-                    self.schlib.append(RNNSch(**self.sch_params))
-                    sch = self._select_schema_minpe(path)
-                    if sch == self.sch:
-                        self.sch_data[self.tr] = 0
-                    else:
-                        self.sch_data[self.tr] = 2
-                    return sch
+                # append to schlib
+                self.schlib.append(RNNSch(**self.sch_params))
+                sch = self._select_schema_minpe(path)
+                return sch
         return None
 
     def _select_schema_minpe(self,path):
